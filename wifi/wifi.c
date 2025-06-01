@@ -35,20 +35,8 @@ static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 static const char *TAG = "WIFI";
 
-// Good to have options for research
-// CONFIG_MDNS_TASK_STACK_SIZE
-// CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK
-// CONFIG_FREERTOS_CHECK_STACKOVERFLOW
-// CONFIG_LWIP_TCPIP_TASK_STACK_SIZE
-// CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE
-// CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH
-// CONFIG_ESP_TIMER_TASK_STACK_SIZE
-// CONFIG_ESP_WIFI_IRAM_OPT
-// CONFIG_ESP_WIFI_RX_IRAM_OPT
-// CONFIG_SPI_MASTER_ISR_IN_IRAM
-// CONFIG_SPI_SLAVE_ISR_IN_IRAM
-// CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH
-//
+static TaskHandle_t init_task_handle;
+
 static void initialise_mdns(void)
 {
   ESP_ERROR_CHECK(mdns_init());
@@ -87,6 +75,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
     s_retry_num = 0;
     xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+
+    xTaskNotifyGive(init_task_handle);
   }
   else
   {
@@ -94,9 +84,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   }
 }
 
-void wifi_init(void)
+void wifi_init(TaskHandle_t init_task)
 {
   esp_log_level_set(TAG, ESP_LOG_ERROR);
+  init_task_handle=init_task;
   s_wifi_event_group = xEventGroupCreate();
 
   ESP_ERROR_CHECK(nvs_flash_erase());

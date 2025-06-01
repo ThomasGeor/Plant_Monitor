@@ -3,6 +3,8 @@ targets:
   - esp32
 
 dependencies:
+  joltwallet/littlefs:
+    version: "^1.19.2"
   espressif/mdns:
     version: "^1.0.0"
   ## Required IDF version
@@ -29,5 +31,7 @@ dependencies:
     path: ../sntp_client
   http_server:
     path: ../http_server
-  html_pages:
-    path: ../html_pages
+  file_system:
+    path: ../file_system
+  sensor_data:
+    path: ../sensor_data

@@ -12,3 +12,4 @@ managed_components/
 *.md
 *.old
 *.swp
+dependencies.lock

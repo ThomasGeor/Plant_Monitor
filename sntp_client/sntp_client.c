@@ -72,7 +72,7 @@ void sntp(void)
     initialize_sntp();
     time(&now);
   }
-  // Set the timezone to Athnes timezone
+  // Set the timezone to Athens timezone
   setenv("TZ", "UTC-2", 1);
   tzset();
   localtime_r(&now, &timeinfo);

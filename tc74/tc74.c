@@ -6,6 +6,9 @@
 #include "esp_log.h"
 #include "driver/i2c.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #define TC74_SLAVE_ADDR_A0 0x48
 #define TC74_SLAVE_ADDR_A1 0x49
@@ -38,7 +41,11 @@
 #define ACK_VAL 0x0                        /*!< I2C ack value */
 #define NACK_VAL 0x1                       /*!< I2C nack value */
 
+static void tc74_update(void* pvParam);
+
 static const char *TEMP_TAG = "TC74";
+static uint8_t temperature = 0;
+SemaphoreHandle_t temperature_data_mutex;
 
 /**
  * @brief i2c master initialization (esp32 as master)
@@ -46,15 +53,18 @@ static const char *TEMP_TAG = "TC74";
 
 static esp_err_t i2c_master_init(void)
 {
-    int i2c_master_port = I2C_MASTER_NUM;
-    i2c_config_t conf = {.mode = I2C_MODE_MASTER,
-			 .sda_io_num = I2C_MASTER_SDA_IO,
-			 .sda_pullup_en = GPIO_PULLUP_ENABLE,
-			 .scl_io_num = I2C_MASTER_SCL_IO,
-			 .scl_pullup_en = GPIO_PULLUP_ENABLE,
-			 .master.clk_speed = I2C_MASTER_FREQ_HZ};
-    i2c_param_config(i2c_master_port, &conf);
-    return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
+  int i2c_master_port = I2C_MASTER_NUM;
+  i2c_config_t conf =
+  {
+    .mode = I2C_MODE_MASTER,
+    .sda_io_num = I2C_MASTER_SDA_IO,
+    .sda_pullup_en = GPIO_PULLUP_ENABLE,
+    .scl_io_num = I2C_MASTER_SCL_IO,
+    .scl_pullup_en = GPIO_PULLUP_ENABLE,
+    .master.clk_speed = I2C_MASTER_FREQ_HZ
+  };
+  i2c_param_config(i2c_master_port, &conf);
+  return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
 }
 
 /**
@@ -71,18 +81,18 @@ static esp_err_t i2c_master_init(void)
  */
 static esp_err_t i2c_master_read_tc74_config(i2c_port_t i2c_num, uint8_t *mode)
 {
-    int ret;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
-    i2c_master_write_byte(cmd, READ_WRITE_CONFIG_REGISTER, ACK_CHECK_EN);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | READ_BIT, ACK_CHECK_EN);
-    i2c_master_read_byte(cmd, mode, NACK_VAL);
-    i2c_master_stop(cmd);
-    ret = i2c_master_cmd_begin(i2c_num, cmd, 300 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
+  int ret;
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
+  i2c_master_write_byte(cmd, READ_WRITE_CONFIG_REGISTER, ACK_CHECK_EN);
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | READ_BIT, ACK_CHECK_EN);
+  i2c_master_read_byte(cmd, mode, NACK_VAL);
+  i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(i2c_num, cmd, 300 / portTICK_PERIOD_MS);
+  i2c_cmd_link_delete(cmd);
+  return ret;
 }
 
 /**
@@ -99,16 +109,16 @@ static esp_err_t i2c_master_read_tc74_config(i2c_port_t i2c_num, uint8_t *mode)
  */
 static esp_err_t i2c_master_set_tc74_mode(i2c_port_t i2c_num, uint8_t mode)
 {
-    int ret;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
-    i2c_master_write_byte(cmd, READ_WRITE_CONFIG_REGISTER, ACK_CHECK_EN);
-    i2c_master_write_byte(cmd, mode, ACK_CHECK_EN);
-    i2c_master_stop(cmd);
-    ret = i2c_master_cmd_begin(i2c_num, cmd, 300 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
+  int ret;
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
+  i2c_master_write_byte(cmd, READ_WRITE_CONFIG_REGISTER, ACK_CHECK_EN);
+  i2c_master_write_byte(cmd, mode, ACK_CHECK_EN);
+  i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(i2c_num, cmd, 300 / portTICK_PERIOD_MS);
+  i2c_cmd_link_delete(cmd);
+  return ret;
 }
 
 /**
@@ -125,35 +135,56 @@ static esp_err_t i2c_master_set_tc74_mode(i2c_port_t i2c_num, uint8_t mode)
  */
 static esp_err_t i2c_master_read_temp(i2c_port_t i2c_num, uint8_t *tmprt)
 {
-    int ret;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
-    i2c_master_write_byte(cmd, READ_TEMP_REGISTER, ACK_CHECK_EN);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | READ_BIT, ACK_CHECK_EN);
-    i2c_master_read_byte(cmd, tmprt, NACK_VAL);
-    i2c_master_stop(cmd);
-    ret = i2c_master_cmd_begin(i2c_num, cmd, 300 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
+  int ret;
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | WRITE_BIT, ACK_CHECK_EN);
+  i2c_master_write_byte(cmd, READ_TEMP_REGISTER, ACK_CHECK_EN);
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, TC74_SLAVE_ADDR << 1 | READ_BIT, ACK_CHECK_EN);
+  i2c_master_read_byte(cmd, tmprt, NACK_VAL);
+  i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(i2c_num, cmd, 300 / portTICK_PERIOD_MS);
+  i2c_cmd_link_delete(cmd);
+  return ret;
 }
 
 void tc74_init(void)
 {
   esp_log_level_set(TEMP_TAG, ESP_LOG_ERROR);
   ESP_ERROR_CHECK(i2c_master_init());
+  xTaskCreate(tc74_update, "temperature_update_task", 4096, NULL, 5, NULL);
+}
+
+static void tc74_update(void* pvParam)
+{
+  temperature_data_mutex = xSemaphoreCreateMutex();
+  if (temperature_data_mutex == NULL)
+  {
+    ESP_LOGE(TEMP_TAG, "Failed to create mutex");
+    vTaskDelete(NULL);
+  }
+  while (1)
+  {
+    vTaskDelay(pdMS_TO_TICKS(10000));
+    i2c_master_set_tc74_mode(I2C_MASTER_NUM, SET_NORM_OP_VALUE);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    if(xSemaphoreTake(temperature_data_mutex, portMAX_DELAY) == pdTRUE)
+    {
+      i2c_master_read_temp(I2C_MASTER_NUM, &temperature);
+      xSemaphoreGive(temperature_data_mutex);
+    }
+    ESP_LOGI(TEMP_TAG, "%d", temperature);
+    // set standby mode for low consuption (5uA)
+    i2c_master_set_tc74_mode(I2C_MASTER_NUM, SET_STANBY_VALUE);
+  }
 }
 
 uint8_t temperature_reading(void)
 {
-    uint8_t temperature_value;
-    i2c_master_set_tc74_mode(I2C_MASTER_NUM, SET_NORM_OP_VALUE);
-    // Need to change the logic here
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    i2c_master_read_temp(I2C_MASTER_NUM, &temperature_value);
-    ESP_LOGI(TEMP_TAG, "%d", temperature_value);
-    // set standby mode for low consuption (5uA)
-    i2c_master_set_tc74_mode(I2C_MASTER_NUM, SET_STANBY_VALUE);
-    return temperature_value;
+  if(xSemaphoreTake(temperature_data_mutex, portMAX_DELAY) == pdTRUE)
+  {
+    xSemaphoreGive(temperature_data_mutex);
+  }
+  return temperature;
 }

@@ -1,7 +1,5 @@
 # TODO
-- Remake the webpage.
 - Make new pages for statistics.
-- Improve the scheduling.
 - Explore new settings for this board.
 - Measure power consumption.
 - Decrease power consumption.

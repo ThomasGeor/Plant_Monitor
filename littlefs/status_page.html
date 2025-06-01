@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>Plant Monitor</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        color: #343a40;
+        line-height: 1;
+        display: flex;
+        justify-content: center;
+      }
+
+      table {
+        width: 650px;
+        margin-top: 100px;
+        font-size: 18px;
+        border-collapse: collapse;
+      }
+      td,
+      th {
+        padding: 16px 24px;
+        text-align: left;
+      }
+
+      thead th {
+        background-color: #087f5b;
+        color: white;
+        width: 25%;
+      }
+
+      tbody tr:nth-child(odd) {
+        background-color: #f8f9fa;
+      }
+      tbody tr:nth-child(even) {
+        background-color: #e9ecef;
+      }
+    </style>
+  </head>
+  <body>
+    <table>
+      <thead>
+        <tr>
+          <th>Plant Sensors</th>
+          <th>Value (SI)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>Τimestamp</th>
+          <td><span id="timestamp"></span></td>
+        </tr>
+        <tr>
+          <th>TC74 Temperature</th>
+          <td><span id="tc74_temp"></span></td>
+        </tr>
+        <tr>
+          <th>DHT22 Temperature</th>
+          <td><span id="dht22_temp"></span></td>
+        </tr>
+        <tr>
+          <th>DHT22 Humidity</th>
+          <td><span id="hum"></span></td>
+        </tr>
+        <tr>
+          <th>MQ135 CO2 Level</th>
+          <td><span id="co2"></span></td>
+        </tr>
+        <tr>
+          <th>LDR Light intensity</th>
+          <td><span id="ldr"></span></td>
+        </tr>
+        <tr>
+          <th>Soil moisture</th>
+          <td><span id="soil_moist"></span></td>
+        </tr>
+      </tbody>
+    </table>
+    <script>
+      function connect()
+      {
+
+        function statusRequest()
+        {
+          if(ws.readyState == WebSocket.OPEN)
+          {
+            ws.send("request_status");
+          }
+        }
+
+        let ws = new WebSocket('ws://home.local/ws_data');
+
+        ws.onopen = function()
+        {
+          console.log("WebSocket connected");
+          //setInterval(statusRequest, 10000);
+        }
+
+        ws.onerror = err => console.error("WebSocket error", err);
+
+        ws.onclose = () =>
+        {
+          console.log("WebSocket disconnected");
+          setTimeout(connect, 5000);
+        };
+
+        ws.onmessage = function(event)
+        {
+          try
+          {
+            console.log("Message received:", event.data);
+            const data = JSON.parse(event.data);
+            document.getElementById("timestamp").textContent = data.timestamp;
+            document.getElementById("tc74_temp").textContent = data.tc74_temp + " °C";
+            document.getElementById("dht22_temp").textContent = data.dht22_temp + " °C";
+            document.getElementById("hum").textContent = data.hum + " %";
+            document.getElementById("co2").textContent = data.co2 + " PPM";
+            document.getElementById("ldr").textContent = data.ldr + " %";;
+            document.getElementById("soil_moist").textContent = data.soil_moist + " %";;
+          }
+          catch(err)
+          {
+            console.error("Invalid incomming message", err);
+          }
+        };
+      }
+
+      connect();
+    </script>
+  </body>
+</html>

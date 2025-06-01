@@ -7,8 +7,6 @@
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 #define DHT_OK 0
 #define DHT_CHECKSUM_ERROR -1
